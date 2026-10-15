@@ -64,9 +64,9 @@ func lockMigration(path string) (func(), error) {
 			os.Remove(lock)
 			continue
 		}
-		if !needsFormatMigration(path) {
-			return func() {}, nil
-		}
+		// Waiters must not open the database while the lock holder migrates:
+		// on Windows an open handle makes replacing the file fail. The holder
+		// re-probes after acquiring the lock instead.
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("%w: another process is migrating %s; remove %s if no Elephant process is running", model.ErrMigration, path, lock)
 		}
