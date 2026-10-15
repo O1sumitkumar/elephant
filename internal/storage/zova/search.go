@@ -1,6 +1,7 @@
 package zova
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -89,6 +90,11 @@ func (t *transaction) Search(p model.Project, q model.SearchQuery) ([]model.Entr
 // graph walks. Results are capped to keep traversal bounded.
 func (t *transaction) Incoming(id string) ([]model.Relation, error) {
 	ns, err := t.db.GraphNeighbors(native.GraphNeighborsOptions{GraphName: graph, NodeID: id, Direction: native.GraphNeighborIncoming, Limit: 101})
+	var nativeErr *native.Error
+	if errors.As(err, &nativeErr) && nativeErr.Status == native.StatusGraphNodeNotFound {
+		// A file or entry node that was never linked has no incoming edges.
+		return []model.Relation{}, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", model.ErrStorage, err)
 	}

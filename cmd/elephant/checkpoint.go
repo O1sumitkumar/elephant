@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io"
-	"strings"
 
 	"elephant/internal/app"
 	"elephant/internal/model"
@@ -33,13 +31,11 @@ func runCheckpoint(ctx context.Context, s *app.Service, cwd string, args []strin
 		return nil, model.ErrInvalidInput
 	}
 	in := app.CheckpointInput{Summary: *summary, Completed: completed, Next: next, Commands: commands, Failures: failures, StartCommit: *start, RelatedFiles: files}
-	for _, raw := range relations {
-		typ, id, ok := strings.Cut(raw, ":")
-		if !ok || typ == "" || id == "" {
-			return nil, fmt.Errorf("%w: relation must be TYPE:ENTRY_UUID", model.ErrInvalidInput)
-		}
-		in.Relations = append(in.Relations, app.RelationInput{Type: typ, EntryID: id})
+	links, err := parseRelations(relations)
+	if err != nil {
+		return nil, err
 	}
+	in.Relations = links
 	return s.AddCheckpoint(ctx, cwd, in)
 }
 

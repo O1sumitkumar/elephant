@@ -83,7 +83,7 @@ Run against an existing Git repository:
 ./bin/elephant --cwd /path/to/repository recall
 ```
 
-Global flags (`--cwd`, `--db`) precede the command. If omitted, `cwd` is the process working directory. Output is JSON, except help and version. `facts`, `decisions`, and `tasks` accept `--status`, `--target-version`, `--limit`, and `--offset`; `inspect ENTRY_ID` includes outgoing relationships.
+Global flags (`--cwd`, `--db`) precede the command. If omitted, `cwd` is the process working directory. Output is JSON, except help and version. `facts`, `decisions`, and `tasks` accept `--status`, `--target-version`, `--limit`, and `--offset`; `inspect ENTRY_ID` includes outgoing relationships, incoming relationships from this project's entries and checkpoints, and stored evidence rows (`evidence verify` reports their current state).
 
 ## Set up an agent
 
@@ -161,6 +161,21 @@ Use that input with `add_task`. IDs, timestamps, project scope, and start commit
 Updates require `id`; omitted fields stay unchanged. `related_files` replaces file links; `[]` clears them. Entry `relations` are additive and duplicate edges are idempotent. An empty `target_version` clears it. JSON `null` is treated like omission for optional update fields.
 
 `supersede_decision` takes the old decision's `id` plus the new `title` and `body`. Alternatively, `add_decision` accepts `supersedes: OLD_ID`. Both atomically create the replacement, close the old decision, and add the graph edge.
+
+The CLI has the same lifecycle operations:
+
+```sh
+elephant add task --title T --body B --file a.go --relation implements:DECISION_ID
+elephant update task ID [--title T] [--body B] [--status S] [--target-version V]
+                        [--file PATH ... | --clear-files] [--relation TYPE:ID ...]
+elephant complete TASK_ID
+elephant cancel TASK_ID
+elephant retire FACT_ID
+elephant supersede DECISION_ID --title T --body B
+elephant add decision --title T --body B --supersedes DECISION_ID
+```
+
+`update` changes only the flags given: `--file` replaces all file links, `--clear-files` removes them, `--target-version ""` clears the version, and `--relation` adds edges.
 
 ## Deterministic search
 
@@ -278,7 +293,7 @@ Projects with equivalent normalized origin URLs share state, including across cl
 
 The database contains a project registry, generated local and source-specific remote entry tables, per-project evidence tables, a `project_tables` ownership registry, peer configuration, message receipts, schema metadata, and the named Zova graph `elephant`. SQL and graph edits share a transaction. Elephant schema 2 migrates transactionally to schema 3 on open, preserving existing rows and graphs; migration is idempotent. Unsupported schema versions and incompatible Zova formats are rejected. Schema 3 databases cannot be opened by older Elephant binaries. Zova may use transient journal files while writing.
 
-Recall returns up to 50 tasks **per unfinished status** (active, blocked, open), 50 active decisions, 50 active facts, 10 completed tasks, and 5 superseded decisions. A `truncated` map identifies categories with more entries. Use the list tools to page through them: default/maximum page size 200. Within each group, entries sort newest first with ID as the tie-breaker. `recall_project` also accepts an exact `target_version` filter.
+Recall returns up to 50 tasks **per unfinished status** (active, blocked, open), 50 active decisions, 50 active facts, 10 completed tasks, and 5 superseded decisions. A `truncated` map identifies categories with more entries. Use the list tools to page through them: default/maximum page size 200. Within each group, entries sort newest first with ID as the tie-breaker. `recall_project` also accepts an exact `target_version` filter. `changed_files` lists files with uncommitted changes (staged, unstaged, untracked, and rename sources) that have linked entries in any status, newest first; files without linked memory are omitted. It scans up to 200 changed paths and reports up to 20 files with 10 entries each, marking `truncated.changed_files` when a bound is hit. It is local-only and follows `--file` links, not evidence paths.
 
 Titles are limited to 300 bytes and bodies to 32 KiB. Each mutation accepts up to 99 file/entry links, with up to 100 outgoing links per entry including supersession. These limits keep retrieval bounded.
 

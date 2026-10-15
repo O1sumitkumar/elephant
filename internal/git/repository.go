@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -26,6 +27,10 @@ type Metadata struct {
 	Head     string `json:"head"`
 	Branch   string `json:"branch"`
 	Dirty    bool   `json:"dirty"`
+	// ChangedFiles lists root-relative paths with staged, unstaged, or
+	// untracked changes, sorted. Rename sources are included so memory linked
+	// to the old path still surfaces. It is not part of the status JSON.
+	ChangedFiles []string `json:"-"`
 }
 
 // Inspect reads repository metadata from cwd. cwd may point at any directory
@@ -71,10 +76,11 @@ func Inspect(ctx context.Context, cwd string) (Metadata, error) {
 		return Metadata{}, err
 	}
 
-	status, err := runGit(ctx, cwd, "status", "--porcelain", "--untracked-files=all")
+	status, err := runGitBytes(ctx, cwd, "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return Metadata{}, err
 	}
+	changed := changedFiles(status)
 
 	identity, name, err := projectIdentity(ctx, cwd, root, remote)
 	if err != nil {
@@ -82,14 +88,43 @@ func Inspect(ctx context.Context, cwd string) (Metadata, error) {
 	}
 
 	return Metadata{
-		Root:     root,
-		Identity: identity,
-		Name:     name,
-		Remote:   remote,
-		Head:     head,
-		Branch:   branch,
-		Dirty:    status != "",
+		Root:         root,
+		Identity:     identity,
+		Name:         name,
+		Remote:       remote,
+		Head:         head,
+		Branch:       branch,
+		Dirty:        len(changed) > 0,
+		ChangedFiles: changed,
 	}, nil
+}
+
+// changedFiles parses `git status --porcelain -z` output. Each record is
+// "XY path"; a rename or copy record is followed by its source path as a
+// separate NUL-terminated field. Porcelain paths are always root-relative.
+func changedFiles(status []byte) []string {
+	fields := strings.Split(string(status), "\x00")
+	seen := map[string]bool{}
+	var out []string
+	add := func(path string) {
+		if path != "" && !seen[path] {
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	for i := 0; i < len(fields); i++ {
+		record := fields[i]
+		if len(record) < 4 {
+			continue
+		}
+		add(record[3:])
+		if strings.ContainsAny(record[:2], "RC") && i+1 < len(fields) {
+			i++
+			add(fields[i])
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ErrNotRegularFile reports that an evidence path is not a regular file, so its

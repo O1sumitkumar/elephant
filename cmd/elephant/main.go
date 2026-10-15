@@ -44,7 +44,7 @@ Usage: elephant [--cwd DIR] [--db FILE.zova] COMMAND
   receive               Process one machine JSON message from stdin
   status                Show project identity and Git metadata
   facts|decisions|tasks  List entries (--status, --target-version, --limit, --offset)
-  inspect ID            Show an entry and its relationships
+  inspect ID            Show an entry, its outgoing and incoming relationships, and evidence
   adopt ENTRY_ID --from NAME_OR_UUID  Promote a received entry into local truth
   evidence add ENTRY_ID --file PATH [--line N]
   evidence list|verify ENTRY_ID
@@ -65,6 +65,12 @@ Usage: elephant [--cwd DIR] [--db FILE.zova] COMMAND
   review [--json] [--stale-task-days N] [--unverified-fact-days N]
          [--stale-remote-days N]  Deterministic read-only memory health review
   add fact|decision|task --title TEXT --body TEXT [--target-version TEXT] [--file PATH ...]
+                        [--relation TYPE:ENTRY_UUID ...] [--supersedes DECISION_ID]
+  update fact|decision|task ID [--title TEXT] [--body TEXT] [--status STATUS]
+         [--target-version TEXT] [--file PATH ... | --clear-files] [--relation TYPE:ENTRY_UUID ...]
+  complete|cancel TASK_ID  Close a task
+  retire FACT_ID        Retire a fact
+  supersede DECISION_ID --title TEXT --body TEXT [add flags]  Replace an active decision
   remote send fact --title TEXT --body TEXT [--evidence EVIDENCE_ID ...]
                    [--file PATH ...] [--relation TYPE:ENTRY_UUID ...]
   --version             Print version
@@ -79,7 +85,8 @@ recall includes a bounded evidence section for active facts; verification
 reports unchanged, changed, missing, or unavailable and never retires a fact.
 'remote send --evidence' carries a local evidence row with the sent fact;
 the receiver re-verifies it against its own checkout on recall.
-recall includes the latest checkpoint before older project context.
+recall includes the latest checkpoint before older project context, and
+changed_files lists uncommitted files that have linked entries.
 Export output is deterministic for unchanged state; import validates fully
 before committing and never overwrites local truth.
 Review is read-only and deterministic; thresholds default to 30/90/30 days.
@@ -243,28 +250,13 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 	case "checkpoints":
 		result, err = runCheckpoints(ctx, service, *cwd, rest, logs)
 	case "add":
-		if len(rest) == 0 {
-			return fmt.Errorf("%w: add requires fact, decision, or task", model.ErrInvalidInput)
-		}
-		kind := model.Kind(rest[0])
-		add := flag.NewFlagSet("add", flag.ContinueOnError)
-		add.SetOutput(logs)
-		title := add.String("title", "", "concise title")
-		body := add.String("body", "", "context and reasoning")
-		target := add.String("target-version", "", "release or milestone")
-		var files fileFlags
-		add.Var(&files, "file", "related repository-relative file; repeatable")
-		if err = add.Parse(rest[1:]); err != nil {
-			return fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
-		}
-		if add.NArg() != 0 {
-			return model.ErrInvalidInput
-		}
-		in := app.CreateInput{Title: *title, Body: *body, RelatedFiles: files}
-		if *target != "" {
-			in.TargetVersion = target
-		}
-		result, err = service.Add(ctx, *cwd, kind, in)
+		result, err = runAdd(ctx, service, *cwd, rest, logs)
+	case "update":
+		result, err = runUpdate(ctx, service, *cwd, rest, logs)
+	case "supersede":
+		result, err = runSupersede(ctx, service, *cwd, rest, logs)
+	case "complete", "cancel", "retire":
+		result, err = runClose(ctx, service, *cwd, command, rest)
 	case "adopt":
 		adopt := flag.NewFlagSet("adopt", flag.ContinueOnError)
 		adopt.SetOutput(logs)

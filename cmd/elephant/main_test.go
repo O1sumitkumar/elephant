@@ -366,3 +366,97 @@ func TestSearchCommitRangeOrderingCLI(t *testing.T) {
 		t.Fatalf("unclear divergent error: %v", err)
 	}
 }
+
+func TestLifecycleCLI(t *testing.T) {
+	cwd := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", cwd},
+		{"-C", cwd, "-c", "user.name=T", "-c", "user.email=t@e.com", "commit", "--allow-empty", "-qm", "init"},
+	} {
+		if b, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatal(string(b), err)
+		}
+	}
+	t.Setenv("ELEPHANT_DB", filepath.Join(t.TempDir(), "lifecycle.zova"))
+	ctx := context.Background()
+	call := func(args ...string) app.Record {
+		t.Helper()
+		var out, logs bytes.Buffer
+		if err := run(ctx, append([]string{"--cwd", cwd}, args...), &out, &logs); err != nil {
+			t.Fatalf("%v: %v %s", args, err, logs.String())
+		}
+		var rec app.Record
+		if err := json.Unmarshal(out.Bytes(), &rec); err != nil {
+			t.Fatalf("%v: %v %s", args, err, out.String())
+		}
+		return rec
+	}
+	fails := func(args ...string) {
+		t.Helper()
+		var out, logs bytes.Buffer
+		if err := run(ctx, append([]string{"--cwd", cwd}, args...), &out, &logs); err == nil {
+			t.Fatalf("%v succeeded: %s", args, out.String())
+		}
+	}
+
+	old := call("add", "decision", "--title", "Old", "--body", "Why")
+	task := call("add", "task", "--title", "Build", "--body", "Work", "--file", "a.go", "--relation", "implements:"+old.Entry.ID)
+	if len(task.Relations) != 2 {
+		t.Fatalf("task relations = %+v", task.Relations)
+	}
+	updated := call("update", "task", task.Entry.ID, "--title", "Build it", "--status", "active", "--file", "b.go")
+	if updated.Entry.Title != "Build it" || updated.Entry.Status != "active" || updated.Entry.Body != "Work" {
+		t.Fatalf("update = %+v", updated.Entry)
+	}
+	files := 0
+	for _, r := range updated.Relations {
+		if r.Type == "modifies" {
+			files++
+			if !strings.HasSuffix(r.To, ":b.go") {
+				t.Fatalf("file links not replaced: %+v", updated.Relations)
+			}
+		}
+	}
+	if files != 1 {
+		t.Fatalf("file links = %+v", updated.Relations)
+	}
+	cleared := call("update", "task", task.Entry.ID, "--clear-files", "--target-version", "v2")
+	for _, r := range cleared.Relations {
+		if r.Type == "modifies" {
+			t.Fatalf("--clear-files kept %+v", r)
+		}
+	}
+	if cleared.Entry.TargetVersion == nil || *cleared.Entry.TargetVersion != "v2" {
+		t.Fatalf("target version = %v", cleared.Entry.TargetVersion)
+	}
+	if untouched := call("update", "task", task.Entry.ID, "--body", "More"); untouched.Entry.TargetVersion == nil {
+		t.Fatal("update without --target-version cleared it")
+	}
+	fails("update", "task", task.Entry.ID, "--clear-files", "--file", "c.go")
+	fails("update", "fact", task.Entry.ID, "--title", "Wrong kind")
+	if done := call("complete", task.Entry.ID); done.Entry.Status != "done" || done.Entry.EndCommit == nil {
+		t.Fatalf("complete = %+v", done.Entry)
+	}
+	other := call("add", "task", "--title", "Maybe", "--body", "Later")
+	if cancelled := call("cancel", other.Entry.ID); cancelled.Entry.Status != "cancelled" {
+		t.Fatalf("cancel = %+v", cancelled.Entry)
+	}
+	fact := call("add", "fact", "--title", "F", "--body", "B")
+	if retired := call("retire", fact.Entry.ID); retired.Entry.Status != "retired" {
+		t.Fatalf("retire = %+v", retired.Entry)
+	}
+	fails("retire", task.Entry.ID)
+
+	replacement := call("supersede", old.Entry.ID, "--title", "New", "--body", "Better")
+	if len(replacement.Relations) != 1 || replacement.Relations[0].Type != "supersedes" {
+		t.Fatalf("supersede relations = %+v", replacement.Relations)
+	}
+	if inspected := call("inspect", old.Entry.ID); inspected.Entry.Status != "superseded" || len(inspected.Incoming) != 2 {
+		t.Fatalf("superseded decision = %+v", inspected)
+	}
+	third := call("add", "decision", "--title", "Third", "--body", "Again", "--supersedes", replacement.Entry.ID)
+	if len(third.Relations) != 1 || third.Relations[0].To != "entry:"+replacement.Entry.ID {
+		t.Fatalf("add --supersedes relations = %+v", third.Relations)
+	}
+	fails("add", "task", "--title", "X", "--body", "Y", "--relation", "implements")
+}

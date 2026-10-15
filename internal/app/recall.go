@@ -19,17 +19,32 @@ type RecallResult struct {
 	RecentCompleted  []model.Entry     `json:"recent_completed_tasks"`
 	RecentSuperseded []model.Entry     `json:"recent_superseded_decisions"`
 	Relations        []model.Relation  `json:"relations"`
+	ChangedFiles     []ChangedFile     `json:"changed_files"`
 	Truncated        map[string]bool   `json:"truncated"`
+}
+
+// ChangedFile pairs a file with uncommitted changes in the working tree with
+// the entries linked to it through related files, in any lifecycle state.
+type ChangedFile struct {
+	Path    string        `json:"path"`
+	Entries []model.Entry `json:"entries"`
 }
 
 // recallEvidenceLimit bounds verification work in one recall.
 const recallEvidenceLimit = 50
 
+// Changed-file bounds: paths scanned, files reported, and entries per file.
+const (
+	recallChangedScanLimit  = 200
+	recallChangedFileLimit  = 20
+	recallChangedEntryLimit = 10
+)
+
 func (s *Service) Recall(ctx context.Context, cwd, version string) (out RecallResult, err error) {
 	return s.recallWith(ctx, version, func(fn func(storage.Tx, model.Project, gitrepo.Metadata) error) error { return s.within(ctx, cwd, fn) })
 }
 func (s *Service) recallWith(ctx context.Context, version string, within func(func(storage.Tx, model.Project, gitrepo.Metadata) error) error) (out RecallResult, err error) {
-	out = RecallResult{Tasks: []model.Entry{}, Decisions: []model.Entry{}, Facts: []model.Entry{}, Evidence: []EvidenceView{}, RecentCompleted: []model.Entry{}, RecentSuperseded: []model.Entry{}, Relations: []model.Relation{}, Truncated: map[string]bool{}}
+	out = RecallResult{Tasks: []model.Entry{}, Decisions: []model.Entry{}, Facts: []model.Entry{}, Evidence: []EvidenceView{}, RecentCompleted: []model.Entry{}, RecentSuperseded: []model.Entry{}, Relations: []model.Relation{}, ChangedFiles: []ChangedFile{}, Truncated: map[string]bool{}}
 	err = within(func(tx storage.Tx, p model.Project, g gitrepo.Metadata) error {
 		out.Project = p
 		out.Git = g
@@ -96,8 +111,44 @@ func (s *Service) recallWith(ctx context.Context, version string, within func(fu
 				}
 				out.Checkpoint = &CheckpointRecord{Checkpoint: latest[0], Relations: links}
 			}
+			if out.ChangedFiles, err = changedFileEntries(tx, p, g.ChangedFiles, out.Truncated); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 	return
+}
+
+// changedFileEntries reports, in path order, the working-tree changes that
+// have linked memory. Files without linked entries are omitted.
+func changedFileEntries(tx storage.Tx, p model.Project, paths []string, truncated map[string]bool) ([]ChangedFile, error) {
+	out := []ChangedFile{}
+	if len(paths) > recallChangedScanLimit {
+		truncated["changed_files"] = true
+		paths = paths[:recallChangedScanLimit]
+	}
+	for _, path := range paths {
+		clean, err := model.CleanFile(path)
+		if err != nil {
+			continue
+		}
+		entries, err := fileEntries(tx, p, clean)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) == 0 {
+			continue
+		}
+		if len(out) == recallChangedFileLimit {
+			truncated["changed_files"] = true
+			break
+		}
+		if len(entries) > recallChangedEntryLimit {
+			truncated["changed_files"] = true
+			entries = entries[:recallChangedEntryLimit]
+		}
+		out = append(out, ChangedFile{Path: clean, Entries: entries})
+	}
+	return out, nil
 }

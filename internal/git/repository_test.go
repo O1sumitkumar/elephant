@@ -356,3 +356,42 @@ func gitOutput(t *testing.T, cwd string, args ...string) string {
 func normalizedGitPath(path string) string {
 	return filepath.Clean(filepath.FromSlash(path))
 }
+
+func TestInspectChangedFilesAreRootRelativeAndIncludeRenameSources(t *testing.T) {
+	repo := newRepository(t)
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitOutput(t, repo, "mv", "README.md", "docs/read me.md")
+	if err := os.MkdirAll(filepath.Join(repo, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "nested", "new file.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := Inspect(context.Background(), filepath.Join(repo, "nested"))
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	want := []string{"README.md", "docs/read me.md", "nested/new file.txt"}
+	if strings.Join(metadata.ChangedFiles, "|") != strings.Join(want, "|") {
+		t.Fatalf("ChangedFiles = %q, want %q", metadata.ChangedFiles, want)
+	}
+	if !metadata.Dirty {
+		t.Fatal("Dirty = false with changed files")
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "new file.txt") {
+		t.Fatalf("changed files leaked into status JSON: %s", encoded)
+	}
+	clean, err := Inspect(context.Background(), newRepository(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.Dirty || len(clean.ChangedFiles) != 0 {
+		t.Fatalf("clean repository reported changes: %+v", clean)
+	}
+}

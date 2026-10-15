@@ -47,9 +47,15 @@ type UpdateInput struct {
 	RelatedFiles  *[]string       `json:"related_files,omitempty"`
 	Relations     []RelationInput `json:"relations,omitempty"`
 }
+
+// Record is one entry with its graph context: outgoing relations, incoming
+// relations from this project's entries and checkpoints, and stored evidence
+// rows (use evidence verify for their current state).
 type Record struct {
 	Entry     model.Entry      `json:"entry"`
 	Relations []model.Relation `json:"relations"`
+	Incoming  []model.Relation `json:"incoming"`
+	Evidence  []model.Evidence `json:"evidence"`
 }
 type Status struct {
 	Project model.Project    `json:"project"`
@@ -100,9 +106,28 @@ func (s *Service) Status(ctx context.Context, cwd string) (out Status, err error
 	err = s.within(ctx, cwd, func(tx storage.Tx, p model.Project, g gitrepo.Metadata) error { out = Status{p, g}; return nil })
 	return
 }
-func record(tx storage.Tx, e model.Entry) (Record, error) {
-	links, err := tx.Relations("entry:" + e.ID)
-	return Record{e, links}, err
+func record(tx storage.Tx, p model.Project, e model.Entry) (Record, error) {
+	out := Record{Entry: e, Incoming: []model.Relation{}}
+	var err error
+	if out.Relations, err = tx.Relations("entry:" + e.ID); err != nil {
+		return out, err
+	}
+	incoming, err := tx.Incoming(model.EntryNode(p, e.ID))
+	if err != nil {
+		return out, err
+	}
+	for _, r := range incoming {
+		if inProject(p, r.From) || strings.HasPrefix(r.From, "checkpoint:"+p.TableName+":") {
+			out.Incoming = append(out.Incoming, r)
+		}
+	}
+	if out.Evidence, err = tx.Evidence(p, e.ID); err != nil {
+		return out, err
+	}
+	if out.Evidence == nil {
+		out.Evidence = []model.Evidence{}
+	}
+	return out, nil
 }
 func (s *Service) Get(ctx context.Context, cwd, id string) (out Record, err error) {
 	err = s.within(ctx, cwd, func(tx storage.Tx, p model.Project, g gitrepo.Metadata) error {
@@ -110,7 +135,7 @@ func (s *Service) Get(ctx context.Context, cwd, id string) (out Record, err erro
 		if err != nil {
 			return err
 		}
-		out, err = record(tx, e)
+		out, err = record(tx, p, e)
 		return err
 	})
 	return
@@ -173,7 +198,7 @@ func (s *Service) Add(ctx context.Context, cwd string, k model.Kind, in CreateIn
 				return err
 			}
 		}
-		out, err = record(tx, e)
+		out, err = record(tx, p, e)
 		return err
 	})
 	return
@@ -233,7 +258,7 @@ func (s *Service) Update(ctx context.Context, cwd string, k model.Kind, id strin
 		if err = attach(tx, p, e, files, in.Relations); err != nil {
 			return err
 		}
-		out, err = record(tx, e)
+		out, err = record(tx, p, e)
 		return err
 	})
 	return

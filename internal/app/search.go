@@ -557,33 +557,43 @@ func (s *Service) History(ctx context.Context, cwd, file string, limit int) (out
 		if err != nil {
 			return err
 		}
-		incoming, err := tx.Incoming("file:" + project.ID + ":" + clean)
-		if err != nil {
+		if out, err = fileEntries(tx, project, clean); err != nil {
 			return err
 		}
-		seen := map[string]bool{}
-		for _, r := range incoming {
-			eid, ok := projectEntryID(project, r.From)
-			if !ok || seen[eid] {
-				continue
-			}
-			seen[eid] = true
-			e, err := tx.Get(project, eid)
-			if err != nil {
-				continue
-			}
-			out = append(out, e)
-		}
-		sort.Slice(out, func(i, j int) bool {
-			if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-				return out[i].ID < out[j].ID
-			}
-			return out[i].UpdatedAt.After(out[j].UpdatedAt)
-		})
 		if len(out) > limit {
 			out = out[:limit]
 		}
 		return nil
 	})
 	return
+}
+
+// fileEntries lists this project's entries linked to one clean
+// repository-relative file, newest first.
+func fileEntries(tx storage.Tx, project model.Project, clean string) ([]model.Entry, error) {
+	out := []model.Entry{}
+	incoming, err := tx.Incoming("file:" + project.ID + ":" + clean)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, r := range incoming {
+		eid, ok := projectEntryID(project, r.From)
+		if !ok || seen[eid] {
+			continue
+		}
+		seen[eid] = true
+		e, err := tx.Get(project, eid)
+		if err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out, nil
 }

@@ -77,6 +77,9 @@ func TestSearchRelatedHistory(t *testing.T) {
 	if err != nil || len(hist) != 1 || hist[0].ID != fact.Entry.ID {
 		t.Fatalf("%+v %v", hist, err)
 	}
+	if none, err := s.History(ctx, cwd, "never/linked.go", 20); err != nil || len(none) != 0 {
+		t.Fatalf("unlinked file history = %+v %v, want empty", none, err)
+	}
 	rel, err := s.Related(ctx, cwd, task.Entry.ID, "outgoing", "", 1, 20)
 	if err != nil || len(rel) != 1 || rel[0].Entry == nil || rel[0].Entry.ID != dec.Entry.ID {
 		t.Fatalf("%+v %v", rel, err)
