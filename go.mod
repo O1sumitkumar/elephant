@@ -3,7 +3,7 @@ module elephant
 go 1.26.5
 
 require (
-	github.com/ata-sesli/zova/bindings/go v1.0.0-rc.2
+	github.com/ata-sesli/zova/bindings/go v1.3.0
 	github.com/google/uuid v1.6.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )

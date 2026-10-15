@@ -28,7 +28,7 @@ You can download and inspect `install.sh` before executing it. Installation does
 
 ## Build from source
 
-Requirements: Go 1.26.5 or newer, Git, a C compiler, and the native Zova C ABI matching the pinned Go binding (`v1.0.0-rc.2`). The Go binding does not download or build the native library.
+Requirements: Go 1.26.5 or newer, Git, a C compiler, and the native Zova C ABI matching the pinned Go binding (`v1.3.0`). The Go binding does not download or build the native library.
 
 Obtain the matching native library from [Zova](https://github.com/ata-sesli/zova), or build that version with `zig build c-abi` in its source checkout. Then, from the Elephant directory:
 
@@ -52,7 +52,7 @@ For an installed C ABI archive, point these flags at its `include` and `lib` dir
 | Windows AMD64 | `windows-2022` | `elephant-vVERSION-windows-amd64.zip` |
 | macOS ARM64 | `macos-15` | `elephant-vVERSION-macos-arm64.tar.gz` |
 
-Each job checks formatting, verifies Go dependencies, builds Zova's native C ABI from the pinned `v1.0.0-rc.2` commit with Zig 0.16.0, bundles Zig’s compiler runtime in the static archive for CGO linking, runs tests (including MCP stdio and race checks), runs `go vet`, and builds and smoke-tests Elephant. The Windows native library uses the GNU ABI; macOS targets version 14 or newer. Linux artifacts target glibc-based distributions and are built on Ubuntu 24.04.
+Each job checks formatting, verifies Go dependencies, builds Zova's native C ABI from the pinned `v1.3.0` commit with Zig 0.17.0, bundles Zig’s compiler runtime in the static archive for CGO linking, runs tests (including MCP stdio and race checks), runs `go vet`, and builds and smoke-tests Elephant. The Windows native library uses the GNU ABI; macOS targets version 14 or newer. Linux artifacts target glibc-based distributions and are built on Ubuntu 24.04.
 
 Once the workflow is on GitHub, push a version tag to publish a release:
 
@@ -292,6 +292,8 @@ The default database is `~/Library/Application Support/elephant/elephant.zova` o
 Projects with equivalent normalized origin URLs share state, including across clones. Without an origin, the local Git common directory identifies the project, so linked worktrees share state. Adding or changing an origin can select a different project identity; v1 does not merge registries automatically. Entries are project-wide, not branch-scoped.
 
 The database contains a project registry, generated local and source-specific remote entry tables, per-project evidence tables, a `project_tables` ownership registry, peer configuration, message receipts, schema metadata, and the named Zova graph `elephant`. SQL and graph edits share a transaction. Elephant schema 2 migrates transactionally to schema 3 on open, preserving existing rows and graphs; migration is idempotent. Unsupported schema versions and incompatible Zova formats are rejected. Schema 3 databases cannot be opened by older Elephant binaries. Zova may use transient journal files while writing.
+
+An older but migratable Zova storage format (for example format 11 from Elephant 0.3.0 and earlier) is upgraded automatically on open. Zova writes the current format to a new file, Elephant keeps the original bytes as `elephant.format-N-backup-TIMESTAMP.zova` next to the database, and the new file replaces the database atomically. A `.migrate.lock` file lets only one process migrate while others wait; migration is refused while another process has the database open for writing. Restart running agents after upgrading so no older Elephant process keeps writing to the replaced file. Older binaries cannot open the upgraded database; to downgrade, restore the backup.
 
 Recall returns up to 50 tasks **per unfinished status** (active, blocked, open), 50 active decisions, 50 active facts, 10 completed tasks, and 5 superseded decisions. A `truncated` map identifies categories with more entries. Use the list tools to page through them: default/maximum page size 200. Within each group, entries sort newest first with ID as the tie-breaker. `recall_project` also accepts an exact `target_version` filter. `changed_files` lists files with uncommitted changes (staged, unstaged, untracked, and rename sources) that have linked entries in any status, newest first; files without linked memory are omitted. It scans up to 200 changed paths and reports up to 20 files with 10 entries each, marking `truncated.changed_files` when a bound is hit. It is local-only and follows `--file` links, not evidence paths.
 

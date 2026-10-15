@@ -1,2 +1,5 @@
 # Go formatting and shell scripts require LF, including Windows checkouts.
 * text=auto eol=lf
+
+# Database fixtures are binary Zova files.
+*.zova binary

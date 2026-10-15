@@ -20,6 +20,10 @@ import (
 
 const graph = "elephant"
 
+// busyTimeoutMS lets concurrent Elephant processes wait for each other's
+// locks, including while opening, instead of failing immediately.
+const busyTimeoutMS = 5000
+
 type Store struct {
 	mu sync.Mutex
 	db *native.DB
@@ -43,7 +47,10 @@ func Open(path string) (*Store, error) {
 	if fresh {
 		db, err = native.Create(path)
 	} else {
-		db, err = native.Open(path)
+		if err = migrateFormat(path); err != nil {
+			return nil, err
+		}
+		db, err = native.OpenWithOptions(path, native.OpenOptions{BusyTimeoutMS: busyTimeoutMS})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", model.ErrStorage, err)
@@ -53,7 +60,7 @@ func Open(path string) (*Store, error) {
 		err = os.Chmod(path, 0600)
 	}
 	if err == nil {
-		err = db.SetBusyTimeout(5000)
+		err = db.SetBusyTimeout(busyTimeoutMS)
 	}
 	if err == nil {
 		err = s.Transact(context.Background(), func(tx storage.Tx) error {

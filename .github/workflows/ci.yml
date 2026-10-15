@@ -16,8 +16,8 @@ concurrency:
 
 env:
   CGO_ENABLED: '1'
-  ZOVA_VERSION: v1.0.0-rc.2
-  ZOVA_COMMIT: bdd02d8d92d1cda9e4c3b087d568070b133999bf
+  ZOVA_VERSION: v1.3.0
+  ZOVA_COMMIT: a30581ef7070ebc335fed06bbc46ea94a8326c5f
 
 defaults:
   run:
@@ -68,7 +68,7 @@ jobs:
           python-version: '3.13'
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
-          version: 0.16.0
+          version: 0.17.0
       - name: Verify target, dependencies, and release tag
         env:
           EXPECTED_GOOS: ${{ matrix.goos }}

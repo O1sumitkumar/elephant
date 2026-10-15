@@ -4,3 +4,4 @@
 __pycache__/
 *.zova
 *.zova-*
+!/internal/storage/zova/testdata/*.zova
