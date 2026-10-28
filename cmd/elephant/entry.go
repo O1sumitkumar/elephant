@@ -33,7 +33,7 @@ func parseCreate(name string, args []string, logs io.Writer) (app.CreateInput, e
 	target := f.String("target-version", "", "release or milestone")
 	supersedes := f.String("supersedes", "", "active decision ID this decision replaces")
 	var files, relations fileFlags
-	f.Var(&files, "file", "related repository-relative file; repeatable")
+	f.Var(&files, "file", "related file, relative to the working directory; repeatable")
 	f.Var(&relations, "relation", "TYPE:ENTRY_UUID; repeatable")
 	if err := parseFlags(f, args); err != nil {
 		return app.CreateInput{}, err

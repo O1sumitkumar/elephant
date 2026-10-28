@@ -27,7 +27,7 @@ func runEvidence(ctx context.Context, service *app.Service, cwd string, args []s
 	fs.SetOutput(logs)
 	switch op {
 	case "add":
-		path := fs.String("file", "", "repository-relative file that established the fact")
+		path := fs.String("file", "", "file that established the fact, relative to the working directory")
 		line := fs.Int("line", 0, "optional one-based line number")
 		if err := parseFlags(fs, rest); err != nil {
 			return nil, err

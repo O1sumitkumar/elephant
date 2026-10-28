@@ -330,7 +330,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		commitEnd := f.String("commit-end", "", "inclusive range end; must follow --commit-start")
 		updatedAfter := f.String("updated-after", "", "updated_at >= RFC3339 time (e.g. 2026-09-01T00:00:00Z)")
 		updatedBefore := f.String("updated-before", "", "updated_at <= RFC3339 time")
-		file := f.String("file", "", "repository-relative file filter")
+		file := f.String("file", "", "file filter, relative to the working directory")
 		source := f.String("remote", "", "source Elephant UUID or registered name")
 		limit := f.Int("limit", 20, "maximum results (1-50)")
 		offset := f.Int("offset", 0, "pagination offset")

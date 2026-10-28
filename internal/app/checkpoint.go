@@ -81,7 +81,7 @@ func (s *Service) AddCheckpoint(ctx context.Context, cwd string, in CheckpointIn
 		}
 		node := model.CheckpointNode(p.TableName, c.ID)
 		for _, f := range in.RelatedFiles {
-			clean, err := model.CleanFile(f)
+			clean, err := repoFile(g, f)
 			if err != nil {
 				return err
 			}

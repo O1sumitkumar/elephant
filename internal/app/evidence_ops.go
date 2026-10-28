@@ -59,7 +59,7 @@ func (s *Service) AddEvidence(ctx context.Context, cwd, entryID, path string, li
 		if e.Kind != model.Fact {
 			return fmt.Errorf("%w: evidence can only be attached to facts", model.ErrInvalidInput)
 		}
-		clean, err := model.CleanFile(path)
+		clean, err := repoFile(g, path)
 		if err != nil {
 			return err
 		}

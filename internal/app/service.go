@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -168,10 +169,14 @@ func (s *Service) Add(ctx context.Context, cwd string, k model.Kind, in CreateIn
 		if err = e.Validate(); err != nil {
 			return err
 		}
+		files, err := repoFiles(g, in.RelatedFiles)
+		if err != nil {
+			return err
+		}
 		if err = tx.Put(p, e); err != nil {
 			return err
 		}
-		if err = attach(tx, p, e, in.RelatedFiles, in.Relations); err != nil {
+		if err = attach(tx, p, e, files, in.Relations); err != nil {
 			return err
 		}
 		if in.Supersedes != "" {
@@ -253,7 +258,9 @@ func (s *Service) Update(ctx context.Context, cwd string, k model.Kind, id strin
 					}
 				}
 			}
-			files = *in.RelatedFiles
+			if files, err = repoFiles(g, *in.RelatedFiles); err != nil {
+				return err
+			}
 		}
 		if err = attach(tx, p, e, files, in.Relations); err != nil {
 			return err
@@ -262,6 +269,29 @@ func (s *Service) Update(ctx context.Context, cwd string, k model.Kind, id strin
 		return err
 	})
 	return
+}
+
+// repoFile resolves a file argument, given relative to the caller's working
+// directory like a Git pathspec, to a clean repository-relative path.
+func repoFile(g gitrepo.Metadata, file string) (string, error) {
+	if path.IsAbs(file) || path.Clean(file) == "." {
+		return model.CleanFile(file) // rejected as not repository-relative
+	}
+	return model.CleanFile(path.Join(g.Prefix, file))
+}
+func repoFiles(g gitrepo.Metadata, files []string) ([]string, error) {
+	if len(files) == 0 {
+		return files, nil
+	}
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		clean, err := repoFile(g, f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, clean)
+	}
+	return out, nil
 }
 func attach(tx storage.Tx, p model.Project, e model.Entry, files []string, links []RelationInput) error {
 	if len(files)+len(links) > 99 {

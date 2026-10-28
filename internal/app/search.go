@@ -229,18 +229,16 @@ func (s *Service) Search(ctx context.Context, cwd string, f SearchFilters) (out 
 	if limit == 0 {
 		limit = 20
 	}
-	var cleanFile string
-	if f.File != "" {
-		var err error
-		cleanFile, err = model.CleanFile(f.File)
-		if err != nil {
-			return nil, err
-		}
-	}
 	lower := strings.ToLower(strings.TrimSpace(f.Query))
 	g, err := gitrepo.Inspect(ctx, cwd)
 	if err != nil {
 		return nil, err
+	}
+	var cleanFile string
+	if f.File != "" {
+		if cleanFile, err = repoFile(g, f.File); err != nil {
+			return nil, err
+		}
 	}
 	// Resolve requested range bounds up front: an unresolvable bound must
 	// fail the query before any entry is examined.
@@ -541,14 +539,14 @@ func projectEntryID(p model.Project, node string) (string, bool) {
 // History lists entries linked to one repository-relative file, newest first.
 func (s *Service) History(ctx context.Context, cwd, file string, limit int) (out []model.Entry, err error) {
 	out = []model.Entry{}
-	clean, err := model.CleanFile(file)
-	if err != nil {
-		return nil, err
-	}
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
 	g, err := gitrepo.Inspect(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	clean, err := repoFile(g, file)
 	if err != nil {
 		return nil, err
 	}

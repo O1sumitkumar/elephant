@@ -22,7 +22,7 @@ func runCheckpoint(ctx context.Context, s *app.Service, cwd string, args []strin
 	f.Var(&next, "next", "next action; repeatable")
 	f.Var(&commands, "commands", "command or check run; repeatable")
 	f.Var(&failures, "failures", "unresolved failure; repeatable")
-	f.Var(&files, "file", "related repository-relative file; repeatable")
+	f.Var(&files, "file", "related file, relative to the working directory; repeatable")
 	f.Var(&relations, "relation", "TYPE:ENTRY_UUID; repeatable")
 	if err := parseFlags(f, args); err != nil {
 		return nil, err

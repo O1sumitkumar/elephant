@@ -270,7 +270,9 @@ func (s *Service) BuildMessage(ctx context.Context, cwd, operation string, k mod
 	if operation == "entry.send" {
 		now := time.Now().UTC()
 		m.Entry = &model.Entry{ID: uuid.Must(uuid.NewV7()).String(), ActorID: currentActor(), Kind: k, Title: in.Title, Body: in.Body, Status: model.DefaultStatus(k), TargetVersion: in.TargetVersion, StartCommit: optional(g.Head), CreatedAt: now, UpdatedAt: now}
-		m.Files = in.RelatedFiles
+		if m.Files, err = repoFiles(g, in.RelatedFiles); err != nil {
+			return Message{}, err
+		}
 		m.Relations = in.Relations
 		if in.Supersedes != "" {
 			m.Relations = append(m.Relations, RelationInput{Type: "supersedes", EntryID: in.Supersedes})

@@ -83,7 +83,7 @@ func registerSearch(s *sdk.Server, service *app.Service, cwd func(string) string
 		}
 		return service.Related(ctx, cwd(in.CWD), in.ID, in.Direction, in.Edge, depth, in.Limit)
 	})
-	register(s, "file_history", "List entries linked to one repository-relative file, newest first.", func(ctx context.Context, in historyInput) ([]model.Entry, error) {
+	register(s, "file_history", "List entries linked to one file, relative to cwd like a Git pathspec, newest first.", func(ctx context.Context, in historyInput) ([]model.Entry, error) {
 		return service.History(ctx, cwd(in.CWD), in.File, in.Limit)
 	})
 }

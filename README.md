@@ -197,7 +197,7 @@ Search is project-scoped (use `--remote SRC` for a received table), composes kin
 
 Facts and decisions start active; tasks start open. Terminal entries cannot reopen. Stale facts can become active again. Closing an entry records current HEAD as `end_commit`; task completion and decision supersession preserve historical rows. In a repository with no commits, commit fields are null and status remains the lifecycle authority.
 
-Files are normalized repository-relative paths. File graph nodes include project identity to separate identical paths in different repositories. No file contents are stored or scanned. The graph vocabulary is:
+Files are stored as normalized repository-relative paths. File arguments are resolved from the working directory (or MCP `cwd`) like Git pathspecs, so `--file service.go` inside `internal/app` stores `internal/app/service.go`; absolute paths and paths outside the repository are rejected. File graph nodes include project identity to separate identical paths in different repositories. No file contents are stored or scanned. The graph vocabulary is:
 
 - Decision → `affects` → file; fact → `concerns` → file; task → `modifies` → file.
 - Decision → `supersedes` → decision; task → `depends_on` → task.

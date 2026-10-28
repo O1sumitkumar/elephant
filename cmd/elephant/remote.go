@@ -87,7 +87,7 @@ func runRemote(ctx context.Context, s *app.Service, cwd string, args []string, l
 		version := f.String("target-version", "", "release or milestone")
 		supersedes := f.String("supersedes", "", "remote decision ID")
 		var files, relations, evidence fileFlags
-		f.Var(&files, "file", "repository-relative file; repeatable")
+		f.Var(&files, "file", "file, relative to the working directory; repeatable")
 		f.Var(&relations, "relation", "TYPE:ENTRY_UUID; repeatable")
 		f.Var(&evidence, "evidence", "local evidence row ID to carry; repeatable")
 		if err := parseFlags(f, args); err != nil {

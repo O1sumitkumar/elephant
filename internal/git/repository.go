@@ -31,6 +31,9 @@ type Metadata struct {
 	// untracked changes, sorted. Rename sources are included so memory linked
 	// to the old path still surfaces. It is not part of the status JSON.
 	ChangedFiles []string `json:"-"`
+	// Prefix is cwd relative to Root, slash-separated, with a trailing slash;
+	// empty at the root. It is not part of the status JSON.
+	Prefix string `json:"-"`
 }
 
 // Inspect reads repository metadata from cwd. cwd may point at any directory
@@ -39,14 +42,15 @@ type Metadata struct {
 // An unborn repository has no commit to report, so Head is empty in that
 // state. A detached HEAD has no branch name, so Branch is empty.
 func Inspect(ctx context.Context, cwd string) (Metadata, error) {
-	rootValue, err := runGit(ctx, cwd, "rev-parse", "--show-toplevel")
+	locations, err := runGit(ctx, cwd, "rev-parse", "--show-toplevel", "--show-prefix")
 	if err != nil {
 		if isNotRepository(err) {
 			return Metadata{}, fmt.Errorf("%w: %v", ErrNotGitRepository, err)
 		}
 		return Metadata{}, err
 	}
-	root, err := absolutePath(rootValue, cwd)
+	rootValue, prefix, _ := strings.Cut(locations, "\n")
+	root, err := absolutePath(strings.TrimSpace(rootValue), cwd)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("resolve repository root: %w", err)
 	}
@@ -96,6 +100,7 @@ func Inspect(ctx context.Context, cwd string) (Metadata, error) {
 		Branch:       branch,
 		Dirty:        len(changed) > 0,
 		ChangedFiles: changed,
+		Prefix:       strings.TrimSpace(prefix),
 	}, nil
 }
 

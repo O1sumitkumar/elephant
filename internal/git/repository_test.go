@@ -214,6 +214,12 @@ func TestInspectNestedDirtyRepository(t *testing.T) {
 	if !metadata.Dirty {
 		t.Error("Dirty = false, want true for an untracked file")
 	}
+	if metadata.Prefix != "nested/deeper/" {
+		t.Errorf("Prefix = %q, want nested/deeper/", metadata.Prefix)
+	}
+	if atRoot, err := Inspect(context.Background(), repo); err != nil || atRoot.Prefix != "" || atRoot.Root != wantRoot {
+		t.Errorf("Inspect at root = Prefix %q Root %q, %v; want empty prefix", atRoot.Prefix, atRoot.Root, err)
+	}
 
 	encoded, err := json.Marshal(metadata)
 	if err != nil {

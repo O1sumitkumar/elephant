@@ -11,7 +11,7 @@ import (
 type evidenceAddInput struct {
 	scope
 	EntryID string `json:"entry_id" jsonschema:"ID of the fact this evidence supports"`
-	Path    string `json:"path" jsonschema:"Repository-relative file that established the fact"`
+	Path    string `json:"path" jsonschema:"File that established the fact, relative to cwd like a Git pathspec"`
 	Line    int    `json:"line,omitempty" jsonschema:"Optional one-based line number inside the file"`
 }
 type evidenceEntryInput struct {
@@ -31,7 +31,7 @@ type evidenceRemoveInput struct {
 // registerEvidence exposes deterministic evidence operations. Verification is
 // read-only; only refresh and remove write, and neither changes entry state.
 func registerEvidence(s *sdk.Server, service *app.Service, cwd func(string) string) {
-	register(s, "add_evidence", "Attach a repository-relative file (and optional line) to a fact as verifiable evidence, capturing the current commit and the stable digest read from that commit. The fact's lifecycle state is unchanged.", func(ctx context.Context, in evidenceAddInput) (app.EvidenceView, error) {
+	register(s, "add_evidence", "Attach a file (relative to cwd, stored repository-relative) and optional line to a fact as verifiable evidence, capturing the current commit and the stable digest read from that commit. The fact's lifecycle state is unchanged.", func(ctx context.Context, in evidenceAddInput) (app.EvidenceView, error) {
 		return service.AddEvidence(ctx, cwd(in.CWD), in.EntryID, in.Path, in.Line)
 	})
 	register(s, "list_evidence", "List a fact's recorded evidence with its deterministic state: unchanged, changed, missing, or unavailable.", func(ctx context.Context, in evidenceEntryInput) ([]app.EvidenceView, error) {
