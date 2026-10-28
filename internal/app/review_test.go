@@ -613,3 +613,68 @@ func TestReviewDeterministicAndReadOnly(t *testing.T) {
 		t.Fatal("expected findings for the fixture")
 	}
 }
+
+// Finished entries (done or cancelled tasks, retired facts, superseded
+// decisions) are history: a file or evidence that disappeared after they
+// closed is not a finding, and retiring them could never clear it.
+func TestReviewSkipsFileAndEvidenceChecksForFinishedEntries(t *testing.T) {
+	ctx := context.Background()
+	cwd := reviewRepo(t)
+	writeWorkingFile(t, cwd, "gone.txt", "content\n")
+	commitFile(t, cwd, "gone.txt", "add fixture")
+	db, err := zova.Open(filepath.Join(t.TempDir(), "finished.zova"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := app.New(db)
+	files := []string{"gone.txt"}
+	active, err := s.Add(ctx, cwd, model.Fact, app.CreateInput{Title: "Active", Body: "B", RelatedFiles: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired, err := s.Add(ctx, cwd, model.Fact, app.CreateInput{Title: "Retired", Body: "B", RelatedFiles: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.Add(ctx, cwd, model.Task, app.CreateInput{Title: "Done", Body: "B", RelatedFiles: files})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{active.Entry.ID, retired.Entry.ID} {
+		if _, err = s.AddEvidence(ctx, cwd, id, "gone.txt", 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retiredStatus, doneStatus := "retired", "done"
+	if _, err = s.Update(ctx, cwd, model.Fact, retired.Entry.ID, app.UpdateInput{Status: &retiredStatus}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Update(ctx, cwd, model.Task, task.Entry.ID, app.UpdateInput{Status: &doneStatus}); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(filepath.Join(cwd, "gone.txt")); err != nil {
+		t.Fatal(err)
+	}
+	findings, err := s.Review(ctx, cwd, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]map[string]bool{}
+	for _, f := range findings {
+		if codes[f.EntryID] == nil {
+			codes[f.EntryID] = map[string]bool{}
+		}
+		codes[f.EntryID][f.Code] = true
+	}
+	if !codes[active.Entry.ID][app.CodeMissingFile] || !codes[active.Entry.ID][app.CodeEvidenceMissing] {
+		t.Fatalf("active fact not checked: %+v", codes[active.Entry.ID])
+	}
+	for _, id := range []string{retired.Entry.ID, task.Entry.ID} {
+		for _, code := range []string{app.CodeMissingFile, app.CodeEvidenceMissing, app.CodeEvidenceChanged} {
+			if codes[id][code] {
+				t.Errorf("finished entry %s reported %s", id, code)
+			}
+		}
+	}
+}

@@ -159,7 +159,14 @@ func (s *Service) Review(ctx context.Context, cwd string, opts *ReviewOptions) (
 						out = append(out, ReviewFinding{Code: CodeUnverifiedFact, Severity: "low", Source: t.source, EntryID: e.ID, Detail: fmt.Sprintf("fact %s has no evidence verification for %d days", e.ID, o.UnverifiedFactDays), Action: "verify the fact explicitly or retire it"})
 					}
 				}
+				// Finished entries are history: files and evidence that changed
+				// after they closed are not findings, and retiring them could
+				// never clear one.
+				finished := model.Terminal(e.Kind, e.Status)
 				for _, ev := range evidence {
+					if finished {
+						break
+					}
 					if t.source != "local" {
 						// Remote evidence baselines live in the peer
 						// checkout: unavailable, not confirmed inconsistent.
@@ -216,6 +223,9 @@ func (s *Service) Review(ctx context.Context, cwd string, opts *ReviewOptions) (
 				}
 				for _, r := range links {
 					if strings.HasPrefix(r.To, "file:") {
+						if finished {
+							continue
+						}
 						if t.source == "local" {
 							file := strings.TrimPrefix(r.To, "file:"+t.project.ID+":")
 							if _, statErr := os.Stat(filepath.Join(g.Root, file)); statErr != nil && os.IsNotExist(statErr) {
