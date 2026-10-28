@@ -250,40 +250,43 @@ func TestMigrationWaitsForOpenStores(t *testing.T) {
 	migrationLockWait = 300 * time.Millisecond
 	t.Cleanup(func() { migrationLockWait = wait })
 	path, original := copyFormat11(t)
-	running, err := Open(path)
+
+	// Another process has the older database open.
+	other, err := lockDatabase(path, false)
 	if err != nil {
-		t.Fatal(err)
-	}
-	// Put an older format back at the path, as a newer binary would find it.
-	// The first backup goes too, so a second backup in the same second does
-	// not collide with it.
-	backups, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "elephant.format-11-backup-*.zova"))
-	for _, b := range backups {
-		os.Remove(b)
-	}
-	staged := filepath.Join(filepath.Dir(path), "staged")
-	if err := os.WriteFile(staged, original, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(staged, path); err != nil {
 		t.Fatal(err)
 	}
 	if s, err := Open(path); !errors.Is(err, model.ErrMigration) {
 		if err == nil {
 			s.Close()
 		}
-		running.Close()
-		t.Fatalf("Open while another store is open = %v, want a refused migration", err)
+		other()
+		t.Fatalf("Open while another process has the database open = %v, want a refused migration", err)
 	}
 	if current, err := os.ReadFile(path); err != nil || !bytes.Equal(current, original) {
 		t.Fatalf("refused migration changed the database: %v", err)
 	}
-	if err := running.Close(); err != nil {
-		t.Fatal(err)
-	}
+	other()
+
+	// A store keeps the database open until Close, so a migration waits
+	// for it.
 	s, err := Open(path)
 	if err != nil {
-		t.Fatalf("Open after the other store closed: %v", err)
+		t.Fatalf("Open after the other process closed: %v", err)
 	}
-	s.Close()
+	if unlock, err := lockDatabase(path, true); !errors.Is(err, model.ErrMigration) {
+		if err == nil {
+			unlock()
+		}
+		s.Close()
+		t.Fatalf("migration lock while a store is open = %v, want refused", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockDatabase(path, true)
+	if err != nil {
+		t.Fatalf("migration lock after the store closed: %v", err)
+	}
+	unlock()
 }
