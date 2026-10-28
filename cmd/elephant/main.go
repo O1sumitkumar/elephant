@@ -25,7 +25,8 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	// A subcommand's -h has already printed its usage.
+	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil && !errors.Is(err, flag.ErrHelp) {
 		fmt.Fprintln(os.Stderr, "elephant:", transport.PublicError(err))
 		os.Exit(1)
 	}
@@ -118,10 +119,19 @@ type fileFlags []string
 func (f *fileFlags) String() string     { return fmt.Sprint([]string(*f)) }
 func (f *fileFlags) Set(s string) error { *f = append(*f, s); return nil }
 
+// parseFlags parses subcommand flags. Failures are invalid input; -h keeps
+// flag.ErrHelp so main exits 0 after the flag set printed its usage.
+func parseFlags(f *flag.FlagSet, args []string) error {
+	if err := f.Parse(args); err != nil {
+		return fmt.Errorf("%w: %w", model.ErrInvalidInput, err)
+	}
+	return nil
+}
+
 func readImportFile(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
 	}
 	if len(data) > 32<<20 {
 		return nil, fmt.Errorf("%w: import file too large", model.ErrInvalidInput)
@@ -207,7 +217,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		f := flag.NewFlagSet("recall", flag.ContinueOnError)
 		f.SetOutput(logs)
 		source := f.String("remote", "", "source Elephant UUID or registered name")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 0 {
@@ -232,8 +242,8 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		target := list.String("target-version", "", "version filter")
 		limit := list.Int("limit", 200, "maximum entries (1–200)")
 		offset := list.Int("offset", 0, "pagination offset")
-		if err = list.Parse(rest); err != nil {
-			return fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+		if err = parseFlags(list, rest); err != nil {
+			return err
 		}
 		if list.NArg() != 0 {
 			return model.ErrInvalidInput
@@ -261,7 +271,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		adopt := flag.NewFlagSet("adopt", flag.ContinueOnError)
 		adopt.SetOutput(logs)
 		from := adopt.String("from", "", "remote name or source Elephant UUID")
-		if err = adopt.Parse(rest); err != nil {
+		if err = parseFlags(adopt, rest); err != nil {
 			return err
 		}
 		if adopt.NArg() != 1 || *from == "" {
@@ -272,7 +282,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		f := flag.NewFlagSet("export", flag.ContinueOnError)
 		f.SetOutput(logs)
 		project := f.String("project", "", "reserved scope selector (current project)")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 0 || (*project != "" && *project != "current") {
@@ -283,7 +293,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		f := flag.NewFlagSet("import", flag.ContinueOnError)
 		f.SetOutput(logs)
 		asRemote := f.String("as-remote", "archive", "archive source name")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 1 {
@@ -298,7 +308,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		f := flag.NewFlagSet("backup", flag.ContinueOnError)
 		f.SetOutput(logs)
 		output := f.String("output", "", "destination .zova file")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 0 || *output == "" {
@@ -324,7 +334,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		source := f.String("remote", "", "source Elephant UUID or registered name")
 		limit := f.Int("limit", 20, "maximum results (1-50)")
 		offset := f.Int("offset", 0, "pagination offset")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() > 1 {
@@ -357,7 +367,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		edge := f.String("edge", "", "edge type filter")
 		depth := f.Int("depth", 1, "traversal depth (1-3)")
 		limit := f.Int("limit", 20, "maximum results (1-50)")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 1 {
@@ -368,7 +378,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		f := flag.NewFlagSet("history", flag.ContinueOnError)
 		f.SetOutput(logs)
 		limit := f.Int("limit", 20, "maximum results (1-50)")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 1 {
@@ -382,7 +392,7 @@ func run(ctx context.Context, args []string, out, logs io.Writer) error {
 		staleTask := f.Int("stale-task-days", 30, "days before an open task is stale (1-3650)")
 		unverifiedFact := f.Int("unverified-fact-days", 90, "days before a fact needs verification (1-3650)")
 		staleRemote := f.Int("stale-remote-days", 30, "days before a remote is stale (1-3650)")
-		if err = f.Parse(rest); err != nil {
+		if err = parseFlags(f, rest); err != nil {
 			return err
 		}
 		if f.NArg() != 0 {

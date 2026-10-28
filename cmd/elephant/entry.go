@@ -35,8 +35,8 @@ func parseCreate(name string, args []string, logs io.Writer) (app.CreateInput, e
 	var files, relations fileFlags
 	f.Var(&files, "file", "related repository-relative file; repeatable")
 	f.Var(&relations, "relation", "TYPE:ENTRY_UUID; repeatable")
-	if err := f.Parse(args); err != nil {
-		return app.CreateInput{}, fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+	if err := parseFlags(f, args); err != nil {
+		return app.CreateInput{}, err
 	}
 	if f.NArg() != 0 {
 		return app.CreateInput{}, model.ErrInvalidInput
@@ -97,8 +97,8 @@ func runUpdate(ctx context.Context, s *app.Service, cwd string, args []string, l
 	var files, relations fileFlags
 	f.Var(&files, "file", "replacement related file; repeatable")
 	f.Var(&relations, "relation", "TYPE:ENTRY_UUID to add; repeatable")
-	if err := f.Parse(args[2:]); err != nil {
-		return nil, fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+	if err := parseFlags(f, args[2:]); err != nil {
+		return nil, err
 	}
 	if f.NArg() != 0 {
 		return nil, model.ErrInvalidInput

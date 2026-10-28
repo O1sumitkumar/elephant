@@ -24,7 +24,7 @@ func runCheckpoint(ctx context.Context, s *app.Service, cwd string, args []strin
 	f.Var(&failures, "failures", "unresolved failure; repeatable")
 	f.Var(&files, "file", "related repository-relative file; repeatable")
 	f.Var(&relations, "relation", "TYPE:ENTRY_UUID; repeatable")
-	if err := f.Parse(args); err != nil {
+	if err := parseFlags(f, args); err != nil {
 		return nil, err
 	}
 	if f.NArg() != 0 {
@@ -44,7 +44,7 @@ func runCheckpoints(ctx context.Context, s *app.Service, cwd string, args []stri
 	f.SetOutput(logs)
 	limit := f.Int("limit", 10, "maximum checkpoints (1-200)")
 	offset := f.Int("offset", 0, "pagination offset")
-	if err := f.Parse(args); err != nil {
+	if err := parseFlags(f, args); err != nil {
 		return nil, err
 	}
 	if f.NArg() != 0 {

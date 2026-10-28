@@ -55,7 +55,7 @@ func runRemote(ctx context.Context, s *app.Service, cwd string, args []string, l
 		host := f.String("host", "", "ASH host alias")
 		config := f.String("ash-config", "", "ASH configuration file")
 		binary := f.String("elephant-path", "", "remote Elephant executable")
-		if err := f.Parse(args); err != nil {
+		if err := parseFlags(f, args); err != nil {
 			return nil, err
 		}
 		if f.NArg() != 0 {
@@ -90,7 +90,7 @@ func runRemote(ctx context.Context, s *app.Service, cwd string, args []string, l
 		f.Var(&files, "file", "repository-relative file; repeatable")
 		f.Var(&relations, "relation", "TYPE:ENTRY_UUID; repeatable")
 		f.Var(&evidence, "evidence", "local evidence row ID to carry; repeatable")
-		if err := f.Parse(args); err != nil {
+		if err := parseFlags(f, args); err != nil {
 			return nil, err
 		}
 		if f.NArg() != 0 {

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -459,4 +461,35 @@ func TestLifecycleCLI(t *testing.T) {
 		t.Fatalf("add --supersedes relations = %+v", third.Relations)
 	}
 	fails("add", "task", "--title", "X", "--body", "Y", "--relation", "implements")
+}
+
+// Usage mistakes must say what was wrong instead of reporting a storage
+// failure, and -h on a subcommand is a successful help request.
+func TestCLIUsageErrorsAreInvalidInput(t *testing.T) {
+	cwd := t.TempDir()
+	if b, err := exec.Command("git", "init", "-q", cwd).CombinedOutput(); err != nil {
+		t.Fatal(string(b), err)
+	}
+	t.Setenv("ELEPHANT_DB", filepath.Join(t.TempDir(), "usage.zova"))
+	for _, args := range [][]string{
+		{"related", "--bogus", "x"},
+		{"import", filepath.Join(t.TempDir(), "missing.json")},
+		{"export", "--project"},
+		{"recall", "--cwd", ".."},
+		{"history", "--bogus"},
+		{"checkpoint", "--bogus"},
+		{"add", "fact", "--bogus"},
+	} {
+		var out, logs bytes.Buffer
+		err := run(context.Background(), append([]string{"--cwd", cwd}, args...), &out, &logs)
+		if !errors.Is(transport.PublicError(err), model.ErrInvalidInput) {
+			t.Errorf("%v: got %v, want invalid input", args, transport.PublicError(err))
+		}
+	}
+	for _, args := range [][]string{{"search", "-h"}, {"add", "fact", "-h"}, {"doctor", "-h"}} {
+		var out, logs bytes.Buffer
+		if err := run(context.Background(), append([]string{"--cwd", cwd}, args...), &out, &logs); !errors.Is(err, flag.ErrHelp) {
+			t.Errorf("%v: got %v, want a help request", args, err)
+		}
+	}
 }

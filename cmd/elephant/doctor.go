@@ -136,8 +136,8 @@ func runDoctor(ctx context.Context, out, logs io.Writer, args []string, dbPath s
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(logs)
 	structured := fs.Bool("json", false, "print machine-readable output")
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+	if err := parseFlags(fs, args); err != nil {
+		return err
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("%w: doctor takes no arguments", model.ErrInvalidInput)

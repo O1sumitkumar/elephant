@@ -31,8 +31,8 @@ func runSetup(ctx context.Context, out, logs io.Writer, args []string, dbPath st
 		return fmt.Errorf("%w: setup requires exactly one agent name (%s)", model.ErrInvalidInput, strings.Join(agent.Names(), ", "))
 	}
 	name, rest := args[0], args[1:]
-	if err := fs.Parse(rest); err != nil {
-		return fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+	if err := parseFlags(fs, rest); err != nil {
+		return err
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("%w: setup requires exactly one agent name (%s)", model.ErrInvalidInput, strings.Join(agent.Names(), ", "))

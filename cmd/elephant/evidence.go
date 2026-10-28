@@ -29,8 +29,8 @@ func runEvidence(ctx context.Context, service *app.Service, cwd string, args []s
 	case "add":
 		path := fs.String("file", "", "repository-relative file that established the fact")
 		line := fs.Int("line", 0, "optional one-based line number")
-		if err := fs.Parse(rest); err != nil {
-			return nil, fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+		if err := parseFlags(fs, rest); err != nil {
+			return nil, err
 		}
 		if fs.NArg() != 0 || strings.TrimSpace(*path) == "" {
 			return nil, fmt.Errorf("%w: evidence add requires --file PATH", model.ErrInvalidInput)
@@ -46,8 +46,8 @@ func runEvidence(ctx context.Context, service *app.Service, cwd string, args []s
 		return service.ListEvidence(ctx, cwd, id)
 	case "refresh":
 		evidenceID := fs.String("evidence", "", "refresh only this evidence row")
-		if err := fs.Parse(rest); err != nil {
-			return nil, fmt.Errorf("%w: %v", model.ErrInvalidInput, err)
+		if err := parseFlags(fs, rest); err != nil {
+			return nil, err
 		}
 		if fs.NArg() != 0 {
 			return nil, model.ErrInvalidInput
