@@ -273,7 +273,7 @@ elephant remote diff fedora
 elephant adopt ENTRY_ID --from fedora
 ```
 
-`inbox` groups received additions by source Elephant and project. `diff` compares one source table with local state, listing `remote_only` entries that have not been adopted. `adopt` creates a new local entry with a new local ID, copies file links, copies entry relations only when their local targets resolve safely, and records source provenance; repeating the same adoption returns the existing local entry. No automatic merging occurs.
+`inbox` groups received additions by source Elephant and project. `diff` compares one source table with local state, listing `remote_only` entries that have not been adopted. `adopt` creates a new local entry with a new local ID, copies file links, copies entry relations only when their local targets resolve safely, and records source provenance; repeating the same adoption returns the existing local entry. The adopted entry keeps its lifecycle status (a done task stays done), except that a superseded decision is adopted as active. An adopted `supersedes` link follows the local rule: it marks the replaced local decision superseded, and it is skipped and reported when that decision is no longer active. No automatic merging occurs.
 
 MCP adds `list_remotes`, `ensure_remote_project`, `remote_send_fact`, `remote_send_decision`, `remote_send_task`, `remote_recall`, `remote_inbox`, `remote_diff`, and `adopt_entry`. The latter reads locally received state. Existing local tools retain their local-only behavior.
 

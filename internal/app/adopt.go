@@ -267,7 +267,17 @@ func (s *Service) Adopt(ctx context.Context, cwd, entryID, selector string) (out
 			return err
 		}
 		now := time.Now().UTC()
-		e := model.Entry{ID: id.String(), ActorID: currentActor(), Kind: remote.Kind, Title: remote.Title, Body: remote.Body, Status: model.DefaultStatus(remote.Kind), TargetVersion: remote.TargetVersion, StartCommit: optional(g.Head), CreatedAt: now, UpdatedAt: now}
+		// The adopted entry keeps its lifecycle state, except that a decision
+		// is superseded locally only through a supersedes edge: adopting its
+		// replacement marks it.
+		status := remote.Status
+		if remote.Kind == model.Decision && status == "superseded" {
+			status = "active"
+		}
+		e := model.Entry{ID: id.String(), ActorID: currentActor(), Kind: remote.Kind, Title: remote.Title, Body: remote.Body, Status: status, TargetVersion: remote.TargetVersion, StartCommit: optional(g.Head), CreatedAt: now, UpdatedAt: now}
+		if model.Terminal(e.Kind, e.Status) {
+			e.EndCommit = optional(g.Head)
+		}
 		if err = e.Validate(); err != nil {
 			return err
 		}
@@ -326,6 +336,24 @@ func (s *Service) Adopt(ctx context.Context, cwd, entryID, selector string) (out
 				if err = model.ValidateRelation(e.Kind, r.Type, other.Kind); err != nil {
 					skipped = append(skipped, fmt.Sprintf("relation %s: incompatible adopted target", r.Type))
 					continue
+				}
+			}
+			if r.Type == "supersedes" {
+				// Same rule as a local supersede: only an active decision can
+				// be replaced, and replacing it marks it superseded.
+				old, err := tx.Get(local, localTarget)
+				if err != nil {
+					return err
+				}
+				if old.Status != "active" {
+					skipped = append(skipped, fmt.Sprintf("relation supersedes: local decision %s is %s, not active", old.ID, old.Status))
+					continue
+				}
+				old.Status = "superseded"
+				old.EndCommit = optional(g.Head)
+				old.UpdatedAt = now
+				if err = tx.Put(local, old); err != nil {
+					return err
 				}
 			}
 			if err = tx.Link(local, model.Relation{From: model.EntryNode(local, e.ID), Type: r.Type, To: model.EntryNode(local, localTarget)}); err != nil {
