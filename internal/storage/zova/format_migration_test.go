@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	native "github.com/ata-sesli/zova/bindings/go"
 
@@ -36,6 +37,8 @@ func copyFormat11(t *testing.T) (string, []byte) {
 	return path, original
 }
 
+// dirNames lists a directory. Migration leaves <db>.lock in place, since a
+// lock file is never removed.
 func dirNames(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -107,8 +110,8 @@ func TestOpenMigratesOlderFormatAndKeepsBackup(t *testing.T) {
 	if err != nil || !bytes.Equal(kept, original) {
 		t.Fatalf("backup differs from the original database: %v", err)
 	}
-	if names := dirNames(t, filepath.Dir(path)); len(names) != 2 {
-		t.Fatalf("directory after migration = %v, want only the database and its backup", names)
+	if names := dirNames(t, filepath.Dir(path)); len(names) != 3 {
+		t.Fatalf("directory after migration = %v, want only the database, its backup and its lock file", names)
 	}
 
 	again, err := Open(path)
@@ -116,7 +119,7 @@ func TestOpenMigratesOlderFormatAndKeepsBackup(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	again.Close()
-	if names := dirNames(t, filepath.Dir(path)); len(names) != 2 {
+	if names := dirNames(t, filepath.Dir(path)); len(names) != 3 {
 		t.Fatalf("reopen changed the directory: %v", names)
 	}
 }
@@ -146,7 +149,7 @@ func TestConcurrentOpensMigrateOnce(t *testing.T) {
 	if len(backups) != 1 {
 		t.Fatalf("backups = %v, want exactly one migration", backups)
 	}
-	if names := dirNames(t, filepath.Dir(path)); len(names) != 2 {
+	if names := dirNames(t, filepath.Dir(path)); len(names) != 3 {
 		t.Fatalf("directory after concurrent opens = %v", names)
 	}
 }
@@ -163,7 +166,7 @@ func TestMigrationRefusesWhileAnotherWriterHasSidecars(t *testing.T) {
 	if err != nil || !bytes.Equal(current, original) {
 		t.Fatalf("refused migration changed the database: %v", err)
 	}
-	if names := dirNames(t, filepath.Dir(path)); len(names) != 2 {
+	if names := dirNames(t, filepath.Dir(path)); len(names) != 3 {
 		t.Fatalf("refused migration left files behind: %v", names)
 	}
 }
@@ -195,5 +198,45 @@ func TestConcurrentOpensWaitForBusyDatabase(t *testing.T) {
 				t.Fatalf("round %d opener %d: %v", round, i, err)
 			}
 		}
+	}
+}
+
+// A migration lock belongs to the process that holds it: however old the lock
+// file looks, a waiter takes it only after the holder releases it.
+func TestMigrationLockIsNotTakenFromALiveHolder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "elephant.zova")
+	unlock, err := lockMigration(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locks, _ := filepath.Glob(path + "*.lock")
+	old := time.Now().Add(-time.Hour)
+	for _, lock := range locks {
+		if err := os.Chtimes(lock, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acquired := make(chan func(), 1)
+	go func() {
+		next, err := lockMigration(path)
+		if err != nil {
+			t.Error(err)
+			next = func() {}
+		}
+		acquired <- next
+	}()
+	select {
+	case next := <-acquired:
+		next()
+		unlock()
+		t.Fatal("a waiter took the lock while its holder was alive")
+	case <-time.After(500 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case next := <-acquired:
+		next()
+	case <-time.After(10 * time.Second):
+		t.Fatal("the waiter did not get the lock after it was released")
 	}
 }

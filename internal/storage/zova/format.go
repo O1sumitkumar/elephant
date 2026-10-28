@@ -1,7 +1,6 @@
 package zova
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,12 +16,9 @@ import (
 // Zova never migrates a storage format on open, so Elephant upgrades an older
 // .zova file before opening it. Migration is copy-forward: Zova writes the
 // current format to a new file, the original bytes are kept as a backup, and
-// the new file atomically replaces the database path. A lock file serializes
-// processes that open the same database at once.
-const (
-	migrationLockWait  = 60 * time.Second
-	migrationLockStale = 5 * time.Minute
-)
+// the new file atomically replaces the database path. An OS file lock
+// serializes processes that open the same database at once.
+const migrationLockWait = 60 * time.Second
 
 func migrateFormat(path string) error {
 	if !needsFormatMigration(path) {
@@ -47,28 +43,31 @@ func needsFormatMigration(path string) bool {
 	return err == nil && info.Compatibility == native.FormatMigratable
 }
 
+// lockMigration holds an exclusive OS lock on <db>.lock. The kernel releases
+// it when the holder exits, so a lock is never stale, and the file itself is
+// never removed: removing a lock file lets a second process lock a new file
+// while the first still holds the old one.
 func lockMigration(path string) (func(), error) {
-	lock := path + ".migrate.lock"
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("%w: open migration lock: %w", model.ErrMigration, err)
+	}
 	deadline := time.Now().Add(migrationLockWait)
 	for {
-		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if err == nil {
-			fmt.Fprintf(f, "%d\n", os.Getpid())
+		locked, err := tryLock(f, true)
+		if err != nil {
 			f.Close()
-			return func() { os.Remove(lock) }, nil
+			return nil, fmt.Errorf("%w: lock %s: %w", model.ErrMigration, f.Name(), err)
 		}
-		if !errors.Is(err, os.ErrExist) {
-			return nil, fmt.Errorf("%w: create migration lock: %w", model.ErrMigration, err)
-		}
-		if stat, statErr := os.Stat(lock); statErr == nil && time.Since(stat.ModTime()) > migrationLockStale {
-			os.Remove(lock)
-			continue
+		if locked {
+			return func() { unlockFile(f); f.Close() }, nil
 		}
 		// Waiters must not open the database while the lock holder migrates:
 		// on Windows an open handle makes replacing the file fail. The holder
 		// re-probes after acquiring the lock instead.
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("%w: another process is migrating %s; remove %s if no Elephant process is running", model.ErrMigration, path, lock)
+			f.Close()
+			return nil, fmt.Errorf("%w: another process is migrating %s", model.ErrMigration, path)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
