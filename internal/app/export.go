@@ -405,9 +405,12 @@ func (s *Service) Import(ctx context.Context, data []byte, asRemote string) (out
 	}
 	sourceID := "import:" + asRemote
 	err = s.store.Transact(ctx, func(tx storage.Tx) error {
-		seen, err := tx.Message(sourceID, contentDigest, "import")
-		if err != nil {
+		seen, err := importSeen(tx, sourceID, env.Project.Identity, contentDigest)
+		if errors.Is(err, model.ErrInvalidInput) {
 			return fmt.Errorf("%w: archive %q was already imported with different content", model.ErrInvalidInput, asRemote)
+		}
+		if err != nil {
+			return err
 		}
 		if seen {
 			src, err := tx.Source(env.Project.Identity, sourceID)
@@ -462,6 +465,24 @@ func (s *Service) Import(ctx context.Context, data []byte, asRemote string) (out
 		return nil
 	})
 	return
+}
+
+// importSeen reports whether this content was already imported under sourceID
+// for the project, and fails with ErrInvalidInput when different content was.
+// Receipts are keyed by archive name and project identity, so projects can
+// share an archive name. Archives imported before that have a receipt keyed by
+// name alone, which belongs to the project whose source table already exists.
+func importSeen(tx storage.Tx, sourceID, identity, digest string) (bool, error) {
+	_, srcErr := tx.Source(identity, sourceID)
+	if srcErr != nil && !errors.Is(srcErr, model.ErrProjectNotFound) {
+		return false, srcErr
+	}
+	// Names and identities cannot contain newlines, so the key is unambiguous.
+	seen, err := tx.Message(sourceID+"\n"+identity, digest, "import")
+	if err != nil || seen || srcErr != nil {
+		return seen, err
+	}
+	return tx.Message(sourceID, digest, "import")
 }
 
 func entryIDFromNode(n string) (string, bool) {
