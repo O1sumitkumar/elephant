@@ -37,48 +37,25 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
-	_, statErr := os.Stat(path)
-	fresh := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !fresh {
-		return nil, statErr
-	}
-	var db *native.DB
-	var err error
-	if fresh {
-		db, err = native.Create(path)
-	} else {
-		if err = migrateFormat(path); err != nil {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err = create(path); err != nil {
 			return nil, err
 		}
-		db, err = native.OpenWithOptions(path, native.OpenOptions{BusyTimeoutMS: busyTimeoutMS})
+	} else if err != nil {
+		return nil, err
 	}
+	if err := migrateFormat(path); err != nil {
+		return nil, err
+	}
+	db, err := native.OpenWithOptions(path, native.OpenOptions{BusyTimeoutMS: busyTimeoutMS})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", model.ErrStorage, err)
 	}
 	s := &Store{db: db}
-	if fresh {
-		err = os.Chmod(path, 0600)
-	}
-	if err == nil {
-		err = db.SetBusyTimeout(busyTimeoutMS)
-	}
+	err = db.SetBusyTimeout(busyTimeoutMS)
 	if err == nil {
 		err = s.Transact(context.Background(), func(tx storage.Tx) error {
 			t := tx.(*transaction)
-			if fresh {
-				if err := db.Exec(`CREATE TABLE elephant_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-CREATE TABLE projects(id TEXT PRIMARY KEY,identity TEXT NOT NULL UNIQUE,name TEXT NOT NULL,remote TEXT NOT NULL,table_name TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
-INSERT INTO elephant_meta VALUES('schema_version','1');`); err != nil {
-					return err
-				}
-				if err := db.CreateGraph(graph); err != nil {
-					return err
-				}
-				if err := t.migrate(); err != nil {
-					return err
-				}
-				return t.migrateCheckpointKeys()
-			}
 			rows, err := t.query("SELECT value FROM elephant_meta WHERE key='schema_version'")
 			if err != nil || len(rows) != 1 || (value(rows[0][0]) != "1" && value(rows[0][0]) != "2" && value(rows[0][0]) != "3" && value(rows[0][0]) != "4" && value(rows[0][0]) != "5") {
 				return model.ErrSchema
@@ -121,6 +98,56 @@ INSERT INTO elephant_meta VALUES('schema_version','1');`); err != nil {
 	}
 	return s, nil
 }
+
+// create builds a new database under a staging name and publishes it at path
+// only once its schema is committed. A crash therefore never leaves a
+// schema-less file at path, and processes creating the same path at once
+// all end up opening the one database that was published first.
+func create(path string) error {
+	staging := fmt.Sprintf("%s.creating-%s.zova", strings.TrimSuffix(path, ".zova"), newID())
+	defer removeWithSidecars(staging)
+	db, err := native.Create(staging)
+	if err != nil {
+		return fmt.Errorf("%w: %w", model.ErrStorage, err)
+	}
+	err = os.Chmod(staging, 0600)
+	if err == nil {
+		err = (&Store{db: db}).Transact(context.Background(), func(tx storage.Tx) error {
+			t := tx.(*transaction)
+			if err := db.Exec(`CREATE TABLE elephant_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE projects(id TEXT PRIMARY KEY,identity TEXT NOT NULL UNIQUE,name TEXT NOT NULL,remote TEXT NOT NULL,table_name TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+INSERT INTO elephant_meta VALUES('schema_version','1');`); err != nil {
+				return err
+			}
+			if err := db.CreateGraph(graph); err != nil {
+				return err
+			}
+			if err := t.migrate(); err != nil {
+				return err
+			}
+			return t.migrateCheckpointKeys()
+		})
+	}
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	// A hard link publishes atomically and, unlike rename, never replaces a
+	// database another process published first.
+	err = os.Link(staging, path)
+	if err == nil || errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	// Filesystems without hard links fall back to rename, which is still
+	// atomic but leaves a short window in which two creators can race.
+	if _, statErr := os.Stat(path); statErr == nil {
+		return nil
+	}
+	return os.Rename(staging, path)
+}
+
 func (s *Store) Close() error { s.mu.Lock(); defer s.mu.Unlock(); return s.db.Close() }
 
 // Backup creates a storage-safe consistent snapshot at dest while the database
