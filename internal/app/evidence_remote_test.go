@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -115,5 +116,18 @@ func TestRemoteSendCarriesLocalEvidence(t *testing.T) {
 	}
 	if _, err = sender.BuildMessage(ctx, cwd, "entry.send", model.Fact, app.CreateInput{Title: "Carried", Body: "Context", Evidence: []app.EvidenceInput{{EntryID: "missing"}}}); err == nil {
 		t.Fatal("unknown evidence row accepted")
+	}
+	// Evidence is facts-only locally, so decisions and tasks never carry it,
+	// whether this side sends them or a peer does.
+	for _, k := range []model.Kind{model.Decision, model.Task} {
+		_, err = sender.BuildMessage(ctx, cwd, "entry.send", k, app.CreateInput{Title: "Carried", Body: "Context", Evidence: []app.EvidenceInput{{EntryID: want.ID}}})
+		if !errors.Is(err, model.ErrInvalidInput) {
+			t.Fatalf("sending a %s with evidence = %v, want invalid input", k, err)
+		}
+		entry := &model.Entry{ID: uuid.Must(uuid.NewV7()).String(), Kind: k, Title: "Sent", Body: "B", Status: model.DefaultStatus(k), ActorID: "actor", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+		_, err = sender.Receive(ctx, app.Message{ProtocolVersion: 1, MessageID: uuid.Must(uuid.NewV7()).String(), SenderElephantID: sentry, Project: app.ProjectRef{Identity: "github.com/test/carry", Name: "carry"}, Operation: "entry.send", Entry: entry, Evidence: []model.Evidence{{ID: uuid.Must(uuid.NewV7()).String(), EntryID: entry.ID, Path: "runtime.go", CreatedAt: time.Now().UTC(), VerifiedAt: time.Now().UTC()}}})
+		if !errors.Is(err, model.ErrInvalidInput) {
+			t.Fatalf("receiving a %s with evidence = %v, want invalid input", k, err)
+		}
 	}
 }

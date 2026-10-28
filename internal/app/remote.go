@@ -100,6 +100,9 @@ func validateMessage(m Message) error {
 	if len(m.Evidence) > MaxEvidencePerEntry {
 		return fmt.Errorf("%w: at most %d evidence locations per entry", model.ErrInvalidInput, MaxEvidencePerEntry)
 	}
+	if len(m.Evidence) > 0 && m.Entry.Kind != model.Fact {
+		return fmt.Errorf("%w: evidence can only be attached to facts", model.ErrInvalidInput)
+	}
 	seen := map[string]bool{}
 	for _, evidence := range m.Evidence {
 		if !validID(evidence.ID) || evidence.EntryID != m.Entry.ID {
