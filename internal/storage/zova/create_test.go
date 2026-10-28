@@ -56,7 +56,7 @@ func TestConcurrentFirstOpensShareOneDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() != "fresh.zova" {
+		if e.Name() != "fresh.zova" && e.Name() != "fresh.zova.lock" {
 			t.Errorf("leftover file %s", e.Name())
 		}
 	}

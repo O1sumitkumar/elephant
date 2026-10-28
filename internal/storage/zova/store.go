@@ -25,8 +25,9 @@ const graph = "elephant"
 const busyTimeoutMS = 5000
 
 type Store struct {
-	mu sync.Mutex
-	db *native.DB
+	mu     sync.Mutex
+	db     *native.DB
+	unlock func()
 }
 type transaction struct{ db *native.DB }
 
@@ -47,11 +48,16 @@ func Open(path string) (*Store, error) {
 	if err := migrateFormat(path); err != nil {
 		return nil, err
 	}
+	unlock, err := lockDatabase(path, false)
+	if err != nil {
+		return nil, err
+	}
 	db, err := native.OpenWithOptions(path, native.OpenOptions{BusyTimeoutMS: busyTimeoutMS})
 	if err != nil {
+		unlock()
 		return nil, fmt.Errorf("%w: %w", model.ErrStorage, err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, unlock: unlock}
 	err = db.SetBusyTimeout(busyTimeoutMS)
 	if err == nil {
 		err = s.Transact(context.Background(), func(tx storage.Tx) error {
@@ -94,6 +100,7 @@ func Open(path string) (*Store, error) {
 	}
 	if err != nil {
 		db.Close()
+		unlock()
 		return nil, err
 	}
 	return s, nil
@@ -148,7 +155,14 @@ INSERT INTO elephant_meta VALUES('schema_version','1');`); err != nil {
 	return os.Rename(staging, path)
 }
 
-func (s *Store) Close() error { s.mu.Lock(); defer s.mu.Unlock(); return s.db.Close() }
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err := s.db.Close()
+	s.unlock()
+	s.unlock = func() {}
+	return err
+}
 
 // Backup creates a storage-safe consistent snapshot at dest while the database
 // remains open.

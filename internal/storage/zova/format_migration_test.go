@@ -3,6 +3,7 @@ package zova
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -205,7 +206,7 @@ func TestConcurrentOpensWaitForBusyDatabase(t *testing.T) {
 // file looks, a waiter takes it only after the holder releases it.
 func TestMigrationLockIsNotTakenFromALiveHolder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "elephant.zova")
-	unlock, err := lockMigration(path)
+	unlock, err := lockDatabase(path, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +219,7 @@ func TestMigrationLockIsNotTakenFromALiveHolder(t *testing.T) {
 	}
 	acquired := make(chan func(), 1)
 	go func() {
-		next, err := lockMigration(path)
+		next, err := lockDatabase(path, true)
 		if err != nil {
 			t.Error(err)
 			next = func() {}
@@ -239,4 +240,50 @@ func TestMigrationLockIsNotTakenFromALiveHolder(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the waiter did not get the lock after it was released")
 	}
+}
+
+// An open store keeps its database from being replaced. An idle connection
+// leaves no journal file, so without a lock a migration would replace the
+// file under the store and the store's later writes would be lost.
+func TestMigrationWaitsForOpenStores(t *testing.T) {
+	wait := migrationLockWait
+	migrationLockWait = 300 * time.Millisecond
+	t.Cleanup(func() { migrationLockWait = wait })
+	path, original := copyFormat11(t)
+	running, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Put an older format back at the path, as a newer binary would find it.
+	// The first backup goes too, so a second backup in the same second does
+	// not collide with it.
+	backups, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "elephant.format-11-backup-*.zova"))
+	for _, b := range backups {
+		os.Remove(b)
+	}
+	staged := filepath.Join(filepath.Dir(path), "staged")
+	if err := os.WriteFile(staged, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(staged, path); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := Open(path); !errors.Is(err, model.ErrMigration) {
+		if err == nil {
+			s.Close()
+		}
+		running.Close()
+		t.Fatalf("Open while another store is open = %v, want a refused migration", err)
+	}
+	if current, err := os.ReadFile(path); err != nil || !bytes.Equal(current, original) {
+		t.Fatalf("refused migration changed the database: %v", err)
+	}
+	if err := running.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open after the other store closed: %v", err)
+	}
+	s.Close()
 }
