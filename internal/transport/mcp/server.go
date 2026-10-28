@@ -58,7 +58,7 @@ func PublicError(err error) error {
 		return nil
 	}
 	slog.Debug("operation failed", "error", err)
-	for _, known := range []error{model.ErrRemote, model.ErrInvalidInput, model.ErrInvalidKind, model.ErrInvalidStatus, model.ErrInvalidTransition, model.ErrEntryNotFound, model.ErrProjectNotFound, model.ErrRelationNotFound, model.ErrSchema, model.ErrMigration, model.ErrDiagnostics, gitrepo.ErrNotGitRepository, context.Canceled, context.DeadlineExceeded} {
+	for _, known := range []error{model.ErrRemote, model.ErrInvalidInput, model.ErrInvalidKind, model.ErrInvalidStatus, model.ErrInvalidTransition, model.ErrEntryNotFound, model.ErrProjectNotFound, model.ErrRelationNotFound, model.ErrEvidenceNotFound, model.ErrSchema, model.ErrMigration, model.ErrDiagnostics, gitrepo.ErrNotGitRepository, context.Canceled, context.DeadlineExceeded} {
 		if errors.Is(err, known) {
 			return err
 		}
