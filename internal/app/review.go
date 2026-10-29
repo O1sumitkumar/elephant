@@ -279,8 +279,10 @@ func (s *Service) Review(ctx context.Context, cwd string, opts *ReviewOptions) (
 	return
 }
 
+// allEntries reads every entry of p, one 200-row page at a time. It returns
+// an empty, non-nil slice for a project without entries.
 func allEntries(tx storage.Tx, p model.Project) ([]model.Entry, error) {
-	var out []model.Entry
+	out := []model.Entry{}
 	offset := 0
 	for {
 		page, err := tx.List(p, model.Filter{Limit: 200, Offset: offset})

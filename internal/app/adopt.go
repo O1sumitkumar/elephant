@@ -105,7 +105,7 @@ func (s *Service) Inbox(ctx context.Context) (out []InboxGroup, err error) {
 			return err
 		}
 		for _, src := range sources {
-			entries, err := tx.List(src, model.Filter{Limit: 200})
+			entries, err := allEntries(tx, src)
 			if err != nil {
 				return err
 			}
@@ -156,10 +156,10 @@ func (s *Service) Diff(ctx context.Context, cwd, selector string) (out DiffResul
 		out.Adopted = map[string]string{}
 		out.RemoteOnly = []model.Entry{}
 		out.Conflicting = []model.Entry{}
-		if out.Local, err = tx.List(local, model.Filter{Limit: 200}); err != nil {
+		if out.Local, err = allEntries(tx, local); err != nil {
 			return err
 		}
-		if out.Remote, err = tx.List(src, model.Filter{Limit: 200}); err != nil {
+		if out.Remote, err = allEntries(tx, src); err != nil {
 			return err
 		}
 		adoptedRows, err := tx.AdoptionsBySource(g.Identity, src.SourceElephantID)
