@@ -11,6 +11,7 @@ import (
 
 	"elephant/internal/app"
 	"elephant/internal/model"
+	"elephant/internal/storage"
 	"elephant/internal/storage/zova"
 )
 
@@ -30,29 +31,59 @@ func TestInboxDiffReadEveryEntry(t *testing.T) {
 	s := app.New(db)
 	id := func() string { return uuid.Must(uuid.NewV7()).String() }
 
-	if _, err := s.Add(ctx, cwd, model.Fact, app.CreateInput{Title: "shared title", Body: "shared body"}); err != nil {
+	status, err := s.Status(ctx, cwd)
+	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i < localCount; i++ {
-		if _, err := s.Add(ctx, cwd, model.Fact, app.CreateInput{Title: fmt.Sprintf("local %d", i), Body: "local"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	sender := id()
 	start := time.Now().UTC().Add(-time.Hour)
-	for i := 0; i < remoteCount; i++ {
-		title, body := fmt.Sprintf("remote %d", i), "remote"
-		if i == 0 {
-			title, body = "shared title", "shared body"
+	head := status.Git.Head
+	err = db.Transact(ctx, func(tx storage.Tx) error {
+		local := status.Project
+		for i := 0; i < localCount; i++ {
+			title, body := "shared title", "shared body"
+			at := start
+			if i > 0 {
+				title = fmt.Sprintf("local %d", i)
+				body = "local"
+				at = start.Add(time.Duration(i) * time.Millisecond)
+			}
+			e := model.Entry{
+				ID: id(), ActorID: "tester", Kind: model.Fact, Title: title, Body: body, Status: "active",
+				StartCommit: &head, CreatedAt: at, UpdatedAt: at,
+			}
+			if err := e.Validate(); err != nil {
+				return err
+			}
+			if err := tx.Put(local, e); err != nil {
+				return err
+			}
 		}
-		at := start.Add(time.Duration(i) * time.Millisecond)
-		if _, err := s.Receive(ctx, app.Message{ProtocolVersion: 1, MessageID: id(), SenderElephantID: sender,
-			Project:   app.ProjectRef{Identity: "github.com/test/shared", Name: "shared"},
-			Operation: "entry.send",
-			Entry:     &model.Entry{ID: id(), Kind: model.Fact, Title: title, Body: body, Status: "active", ActorID: "peer", CreatedAt: at, UpdatedAt: at}}); err != nil {
-			t.Fatal(err)
+		src, err := tx.EnsureSource(model.Project{Identity: "github.com/test/shared", Name: "shared"}, sender)
+		if err != nil {
+			return err
 		}
+		for i := 0; i < remoteCount; i++ {
+			title, body := fmt.Sprintf("remote %d", i), "remote"
+			if i == 0 {
+				title, body = "shared title", "shared body"
+			}
+			at := start.Add(time.Duration(i) * time.Millisecond)
+			e := model.Entry{
+				ID: id(), Kind: model.Fact, Title: title, Body: body, Status: "active", ActorID: "peer",
+				CreatedAt: at, UpdatedAt: at,
+			}
+			if err := e.Validate(); err != nil {
+				return err
+			}
+			if err := tx.Put(src, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	inbox, err := s.Inbox(ctx)
